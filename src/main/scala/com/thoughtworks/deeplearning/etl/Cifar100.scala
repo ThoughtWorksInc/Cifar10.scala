@@ -13,6 +13,7 @@ import com.thoughtworks.each.Monadic._
 import org.nd4j.linalg.api.ndarray.INDArray
 import org.nd4j.linalg.factory.Nd4j
 
+import scala.collection.{immutable, mutable}
 import scala.util.Random
 import scalaz.syntax.all._
 
@@ -60,6 +61,37 @@ final case class Cifar100(trainBuffer: MappedByteBuffer, testBuffer: MappedByteB
     for ((path, globalFineClass) <- globalFineClassesByLocalFineClass) yield globalFineClass -> path
   }
 
+  private val trainSampleIndicesByCoarseClass: Map[CoarseClass, IndexedSeq[Int]] = {
+    (0 until numberOfTrainSamples).groupBy { i: Int =>
+      val offset = i * NumberOfBytesPerSample
+      val coarseClass = trainBuffer.get(offset) & 0xFF
+      coarseClass
+    }
+  }
+
+  private val testSampleIndicesByCoarseClass: Map[CoarseClass, IndexedSeq[Int]] = {
+    (0 until numberOfTestSamples).groupBy { i: Int =>
+      val offset = i * NumberOfBytesPerSample
+      val coarseClass = testBuffer.get(offset) & 0xFF
+      coarseClass
+    }
+  }
+
+  /** Returns
+    *
+    */
+  def epochByCoarseClass(batchSize: Int,
+                         maxSamplesPerCoarseClass: Int = Int.MaxValue): Iterator[(CoarseClass, Batch)] = {
+    val batches: mutable.ArraySeq[(CoarseClass, IndexedSeq[Int])] = trainSampleIndicesByCoarseClass.flatMap {
+      case (coarseClass, indices) =>
+        Random.shuffle(indices.take(maxSamplesPerCoarseClass)).grouped(batchSize).map(coarseClass -> _)
+    }(collection.breakOut(mutable.ArraySeq.canBuildFrom))
+    Random.shuffle(batches).iterator.map {
+      case (coarseClass, batchIndicies) =>
+        coarseClass -> loadBatch(batchSize, batchIndicies)
+    }
+  }
+
   private def batchOneHotEncoding(label: Array[Int], numberOfClasses: Int): INDArray = {
     import org.nd4s.Implicits._
     val batchSize = label.length
@@ -72,29 +104,33 @@ final case class Cifar100(trainBuffer: MappedByteBuffer, testBuffer: MappedByteB
 
   def epoch(batchSize: Int): Iterator[Batch] = {
     Random.shuffle[Int, IndexedSeq](0 until numberOfTestSamples).grouped(batchSize).map { batchIndices =>
-      import org.nd4s.Implicits._
-      val (coarseClasses, localFineClasses, pixels) = (for (trainImageIndex <- batchIndices) yield {
-        val offset = trainImageIndex * NumberOfBytesPerSample
-        val expectedCoarseClass = trainBuffer.get(offset) & 0xff
-        val globalFineClass = trainBuffer.get(offset + 1) & 0xff
-        val (coarseClass, localFineClass) = localFineClassesByGlobalFineClass(globalFineClass)
-        if (coarseClass != expectedCoarseClass) {
-          throw new IllegalStateException("Inconsistent coarse class detected in train data")
-        }
-        val imageArray = Array.ofDim[Byte](NumberOfPixelsPerSample)
-        trainBuffer.position(offset + 2)
-        trainBuffer.get(imageArray)
-        val pixels = (for (pixel <- imageArray) yield {
-          ((pixel & 0xff).toFloat + 0.5f) / 256.0f
-        })(collection.breakOut(Array.canBuildFrom))
-        (coarseClass, localFineClass, pixels)
-      })(collection.breakOut(Array.canBuildFrom)).unzip3
-      Batch(
-        batchOneHotEncoding(coarseClasses, NumberOfCoarseClasses),
-        batchOneHotEncoding(localFineClasses, NumberOfFineClassesPerCoarseClass),
-        pixels.toNDArray.reshape(batchSize, NumberOfChannels, Width, Height)
-      )
+      loadBatch(batchSize, batchIndices)
     }
+  }
+
+  private def loadBatch(batchSize: GlobalFineClass, batchIndices: IndexedSeq[GlobalFineClass]): Batch = {
+    import org.nd4s.Implicits._
+    val (coarseClasses, localFineClasses, pixels) = (for (trainImageIndex <- batchIndices) yield {
+      val offset = trainImageIndex * NumberOfBytesPerSample
+      val expectedCoarseClass = trainBuffer.get(offset) & 0xff
+      val globalFineClass = trainBuffer.get(offset + 1) & 0xff
+      val (coarseClass, localFineClass) = localFineClassesByGlobalFineClass(globalFineClass)
+      if (coarseClass != expectedCoarseClass) {
+        throw new IllegalStateException("Inconsistent coarse class detected in train data")
+      }
+      val imageArray = Array.ofDim[Byte](NumberOfPixelsPerSample)
+      trainBuffer.position(offset + 2)
+      trainBuffer.get(imageArray)
+      val pixels = (for (pixel <- imageArray) yield {
+        ((pixel & 0xff).toFloat + 0.5f) / 256.0f
+      })(collection.breakOut(Array.canBuildFrom))
+      (coarseClass, localFineClass, pixels)
+    })(collection.breakOut(Array.canBuildFrom)).unzip3
+    Batch(
+      batchOneHotEncoding(coarseClasses, NumberOfCoarseClasses),
+      batchOneHotEncoding(localFineClasses, NumberOfFineClassesPerCoarseClass),
+      pixels.toNDArray.reshape(batchSize, NumberOfChannels, Width, Height)
+    )
   }
 }
 
