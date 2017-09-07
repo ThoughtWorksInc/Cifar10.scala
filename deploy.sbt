@@ -2,6 +2,18 @@ enablePlugins(Travis)
 
 enablePlugins(SonatypeRelease)
 
+releaseProcess := {
+  import ReleaseTransformations._
+  import xerial.sbt.Sonatype.SonatypeCommand.sonatypeReleaseAll
+  releaseProcess.value.patch(
+    releaseProcess.value.indexOf(pushChanges),
+    Seq[ReleaseStep](
+      releaseStepCommand(sonatypeReleaseAll, " com.thoughtworks.deeplearning")
+    ),
+    0
+  )
+}
+
 lazy val secret = project settings(publishArtifact := false) configure { secret =>
   sys.env.get("GITHUB_PERSONAL_ACCESS_TOKEN") match {
     case Some(pat) =>
