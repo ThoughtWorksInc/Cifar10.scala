@@ -181,9 +181,9 @@ object Cifar100 {
         val targzPath = Files.createTempFile("cifar-100-binary", ".tar.gz")
         def download =
           for {
-            cifarHttpStream <- Do.autoCloseable(url.openStream())
-            httpChannel <- Do.autoCloseable(Channels.newChannel(cifarHttpStream))
-            fileChannel <- Do.autoCloseable(FileChannel.open(targzPath, StandardOpenOption.WRITE))
+            cifarHttpStream <- Do.scoped(url.openStream())
+            httpChannel <- Do.scoped(Channels.newChannel(cifarHttpStream))
+            fileChannel <- Do.scoped(FileChannel.open(targzPath, StandardOpenOption.WRITE))
           } yield fileChannel.transferFrom(httpChannel, 0, Long.MaxValue)
         download.run.each
         val archiver: Archiver = ArchiverFactory.createArchiver("tar", "gz")
