@@ -2,6 +2,8 @@ name := "cifar100"
 
 organization := "com.thoughtworks.deeplearning.etl"
 
+sonatypeProfileName := "com.thoughtworks.deeplearning"
+
 libraryDependencies += "org.rauschig" % "jarchivelib" % "0.5.0"
 
 libraryDependencies += "org.nd4j" % "nd4j-native-platform" % "0.8.0" % Runtime
