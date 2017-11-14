@@ -1,4 +1,4 @@
-name := "cifar100"
+name := "cifar10"
 
 organization := "com.thoughtworks.deeplearning.etl"
 
@@ -17,3 +17,5 @@ libraryDependencies += "com.thoughtworks.each" %% "each" % "3.3.1"
 libraryDependencies += "com.thoughtworks.raii" %% "asynchronous" % "2.0.0"
 
 scalaVersion := "2.11.11"
+
+libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.4" % Test
