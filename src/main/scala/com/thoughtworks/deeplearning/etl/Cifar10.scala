@@ -58,7 +58,7 @@ final case class Cifar10(trainBuffers: Seq[MappedByteBuffer], testBuffer: Mapped
     }
   }
 
-  private def loadBatch(batchSize: Int, batchIndices: IndexedSeq[Int]): Batch = {
+  private[etl] def loadBatch(batchSize: Int, batchIndices: IndexedSeq[Int]): Batch = {
 
     import org.nd4s.Implicits._
     val (labels, pixels) = (for (trainImageIndex <- batchIndices) yield {
@@ -80,7 +80,7 @@ final case class Cifar10(trainBuffers: Seq[MappedByteBuffer], testBuffer: Mapped
 
     Batch(
       batchOneHotEncoding(labels, NumberOfClasses),
-      pixels.toNDArray.reshape(batchSize, NumberOfChannels, Width, Height)
+      pixels.toNDArray.reshape(pixels.length, NumberOfChannels, Width, Height)
     )
   }
 }
