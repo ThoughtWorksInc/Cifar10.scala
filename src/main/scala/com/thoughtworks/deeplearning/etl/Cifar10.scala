@@ -24,10 +24,9 @@ final case class Cifar10(trainBuffers: Seq[MappedByteBuffer], testBuffer: Mapped
 
   import Cifar10._
 
-
   /** file 里有多少个图像 */
   private def numberOfTrainSamplesPerFile = trainBuffers.head.capacity / NumberOfBytesPerSample
-
+  private def numberOfTestSamplesPerFile = testBuffer.capacity / NumberOfBytesPerSample
   if (trainBuffers.map(_.capacity).toSet.size != 1) {
     throw new IllegalArgumentException("Train files should not have different sizes.")
   }
@@ -38,7 +37,7 @@ final case class Cifar10(trainBuffers: Seq[MappedByteBuffer], testBuffer: Mapped
 
   /** total 图像数 */
   private def numberOfTrainSamples = numberOfTrainSamplesPerFile * trainBuffers.length
-
+  private def numberOfTestSamples = numberOfTestSamplesPerFile
 
   private def batchOneHotEncoding(label: Array[Int], numberOfClasses: Int): INDArray = {
     import org.nd4s.Implicits._
@@ -46,16 +45,45 @@ final case class Cifar10(trainBuffers: Seq[MappedByteBuffer], testBuffer: Mapped
     val encoded = Nd4j.zeros(batchSize, numberOfClasses)
     for (i <- label.indices) {
 
-
       encoded(i, label(i)) = 1
     }
     encoded
   }
 
   def epoch(batchSize: Int): Iterator[Batch] = {
-    Random.shuffle[Int, IndexedSeq](0 until numberOfTrainSamples).grouped(batchSize).map {
-      batchIndices => loadBatch(batchSize, batchIndices)
+    Random.shuffle[Int, IndexedSeq](0 until numberOfTrainSamples).grouped(batchSize).map { batchIndices =>
+      loadBatch(batchSize, batchIndices)
     }
+  }
+
+  def testBatches(batchSize: Int): Iterator[Batch] = {
+    (0 until numberOfTestSamples).grouped(batchSize).map { batchIndices =>
+      loadTestBatch(batchSize, batchIndices)
+    }
+  }
+
+  private def loadTestBatch(batchSize: Int, batchIndices: IndexedSeq[Int]): Batch = {
+    import org.nd4s.Implicits._
+    val (labels, pixels) = (for (testImageIndex <- batchIndices) yield {
+      val offset = testImageIndex * NumberOfBytesPerSample
+
+      val label = testBuffer.get(offset) & 0xff
+      val imageArray = Array.ofDim[Byte](NumberOfPixelsPerSample)
+
+      testBuffer.position(offset + 1)
+      testBuffer.get(imageArray)
+      val pixels: Array[Float] = for (pixel <- imageArray) yield {
+        ((pixel & 0xff).toFloat + 0.5f) / 256.0f
+      }
+
+      (label, pixels)
+    })(collection.breakOut(Array.canBuildFrom)).unzip
+
+    
+    Batch(
+      batchOneHotEncoding(labels, NumberOfClasses),
+      pixels.toNDArray.reshape(pixels.length, NumberOfChannels, Width, Height)
+    )
   }
 
   private[etl] def loadBatch(batchSize: Int, batchIndices: IndexedSeq[Int]): Batch = {
@@ -68,7 +96,6 @@ final case class Cifar10(trainBuffers: Seq[MappedByteBuffer], testBuffer: Mapped
       val label = trainBuffers(fileIndex).get(offset) & 0xff
       val imageArray = Array.ofDim[Byte](NumberOfPixelsPerSample)
 
-
       trainBuffers(fileIndex).position(offset + 1)
       trainBuffers(fileIndex).get(imageArray)
       val pixels: Array[Float] = for (pixel <- imageArray) yield {
@@ -76,7 +103,7 @@ final case class Cifar10(trainBuffers: Seq[MappedByteBuffer], testBuffer: Mapped
       }
 
       (label, pixels)
-    }) (collection.breakOut(Array.canBuildFrom)).unzip
+    })(collection.breakOut(Array.canBuildFrom)).unzip
 
     Batch(
       batchOneHotEncoding(labels, NumberOfClasses),
@@ -86,7 +113,7 @@ final case class Cifar10(trainBuffers: Seq[MappedByteBuffer], testBuffer: Mapped
 }
 
 object Cifar10 {
-
+  
   final case class Batch(labels: INDArray, pixels: INDArray)
 
   val Width = 32
@@ -133,7 +160,6 @@ object Cifar10 {
         archiver.extract(targzPath.toFile, cacheDirectory.toFile)
         extractedDataPath.ensuring(Files.exists(_))
       }
-
 
       val trainBuffers = for {
         i <- 1 to 5
